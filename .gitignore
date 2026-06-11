@@ -1,0 +1,38 @@
+# ── 环境变量（绝对不能提交！含 API Key）──
+.env
+.env.local
+.env.*.local
+
+# ── 本地模型文件（体积太大，从 HuggingFace/ModelScope 重新下载）──
+models/
+
+# ── 向量数据库（从语料重建，无需提交）──
+data/chroma_db/
+
+# ── BM25 索引（从语料重建）──
+data/bm25_index.pkl
+
+# ── Python 缓存 ──
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+.pytest_cache/
+
+# ── 虚拟环境 ──
+.venv/
+venv/
+env/
+
+# ── 编辑器 ──
+.vscode/
+.idea/
+*.swp
+
+# ── 系统文件 ──
+.DS_Store
+Thumbs.db
+
+# ── 日志 ──
+*.log
+logs/

@@ -1,0 +1,29 @@
+# Week 1
+lunar-python
+pytest
+
+# Week 2
+rank-bm25
+jieba
+chromadb
+sentence-transformers
+pdfplumber
+
+# Week 3
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langgraph
+langsmith
+
+# Week 4
+ragas
+datasets
+
+# API & Web
+fastapi
+uvicorn
+streamlit
+python-dotenv
+requests
