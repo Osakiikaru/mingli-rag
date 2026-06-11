@@ -36,3 +36,11 @@ Thumbs.db
 # ── 日志 ──
 *.log
 logs/
+
+# ── 个人笔记/计划（本地留存，不公开）──
+My_Notes/
+My_Plan/
+My_Progress/
+
+# ── Claude 本地配置 ──
+.claude/
