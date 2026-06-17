@@ -136,7 +136,7 @@ NVIDIA GPU（可选，BGE-M3 用于加速；Reranker 需要 6GB+ VRAM）
 ### 安装
 
 ```bash
-git clone https://github.com/your-username/mingli-rag.git
+git clone https://github.com/Osakiikaru/mingli-rag.git
 cd mingli-rag
 pip install -r requirements.txt
 ```
