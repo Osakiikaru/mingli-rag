@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  # ── FastAPI 后端 ──────────────────────────────────────
+  api:
+    build: .
+    image: mingli-rag:latest
+    container_name: mingli-api
+    env_file: .env                  # 加载 NAGA_API_KEY / LANGCHAIN_API_KEY
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data            # chroma_db / bm25_index / eval_questions
+      - ./models:/app/models        # bge-m3 / bge-reranker-v2-m3
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Streamlit 前端（可选，按需启动）──────────────────
+  streamlit:
+    build: .
+    image: mingli-rag:latest
+    container_name: mingli-ui
+    env_file: .env
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    command: >
+      streamlit run app.py
+      --server.port=8501
+      --server.address=0.0.0.0
+      --server.fileWatcherType=none
+    restart: unless-stopped
+    profiles:
+      - ui                          # 默认不启动，需显式: docker compose --profile ui up

@@ -25,8 +25,10 @@ scripts/evaluate_ragas.py
 # ── 必须在所有 import 之前 ──────────────────────────────────
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+# OMP_NUM_THREADS：不再设为1，允许多线程。
+# GPU 路径下此值无影响；CPU fallback 时多线程能让 reranker 从 218s → ~30s
+os.environ.setdefault("OMP_NUM_THREADS", "4")
+# CUDA_VISIBLE_DEVICES 不再强制为空，让 BGE-M3 和 Reranker 走 GPU
 
 import argparse
 import json
@@ -46,12 +48,15 @@ load_dotenv()
 # 配置
 # ─────────────────────────────────────────────────────────────
 EVAL_CONFIGS = [
-    {"name": "bm25_only",          "label": "BM25-only",              "mode": "bm25",   "rerank": False, "use_critic": False},
-    {"name": "vector_only",        "label": "Vector-only",            "mode": "vector", "rerank": False, "use_critic": False},
-    {"name": "hybrid",             "label": "Hybrid",                 "mode": "hybrid", "rerank": False, "use_critic": False},
-    {"name": "hybrid_rerank",      "label": "Hybrid+Rerank",          "mode": "hybrid", "rerank": True,  "use_critic": False},
-    {"name": "hybrid_no_critic",   "label": "Hybrid (无Self-Critique)", "mode": "hybrid", "rerank": False, "use_critic": False},
-    {"name": "hybrid_with_critic", "label": "Hybrid (有Self-Critique)", "mode": "hybrid", "rerank": False, "use_critic": True},
+    # ── 消融：检索方式对比 ──────────────────────────────────
+    {"name": "bm25_only",     "label": "BM25-only",     "mode": "bm25",   "rerank": False, "use_critic": False},
+    {"name": "vector_only",   "label": "Vector-only",   "mode": "vector", "rerank": False, "use_critic": False},
+    {"name": "hybrid",        "label": "Hybrid",        "mode": "hybrid", "rerank": False, "use_critic": False},
+    # ── 消融：Self-Critique 效果对比（Hybrid 基础上）────────
+    {"name": "hybrid_critic", "label": "Hybrid+Critic", "mode": "hybrid", "rerank": False, "use_critic": True},
+    # ── rerank 配置：需要 6GB+ VRAM，硬件不足时注释掉 ────────
+    # {"name": "hybrid_rerank",        "label": "Hybrid+Rerank",        "mode": "hybrid", "rerank": True,  "use_critic": False},
+    # {"name": "hybrid_rerank_critic", "label": "Hybrid+Rerank+Critic", "mode": "hybrid", "rerank": True,  "use_critic": True},
 ]
 TOP_K       = 5
 RESULTS_DIR = ROOT / "data" / "eval_results"
@@ -141,8 +146,8 @@ _GENERATE_PROMPT = """你是一位精通子平八字命理的专家，根据提�
 
 要求：
 1. 只根据上方古籍片段作答
-2. 引用时注明来源（出自《书名》）
-3. 用现代中文回答，300-500字"""
+2. 引用时注明来源（出自《书名》）；章节名只能来自片段标题，不得凭记忆杜撰
+3. 用现代中文回答，400-600字，内容充实"""
 
 _CRITIC_PROMPT = """你是一位命理知识核验专家。
 

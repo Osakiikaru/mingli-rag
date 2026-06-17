@@ -37,6 +37,9 @@ Thumbs.db
 *.log
 logs/
 
+# ── 消融实验逐题记录（大文件，可由 evaluate_ragas.py 重新生成）──
+data/eval_results/
+
 # ── 个人笔记/计划（本地留存，不公开）──
 My_Notes/
 My_Plan/

@@ -102,9 +102,14 @@ class DirectCrossEncoder:
     def predict(
         self,
         pairs: list[tuple[str, str]],
-        batch_size: int = 8,
+        batch_size: int = 32,   # 改为32：20对候选全部在一个batch里，减少kernel launch开销
         **kwargs,
     ) -> list[float]:
+        actual_device = next(self.model.parameters()).device
+        # 首次调用时打印实际运行设备（诊断CPU fallback问题）
+        if not getattr(self, "_device_logged", False):
+            print(f"  [Reranker] 实际推理设备：{actual_device}，batch_size={batch_size}")
+            self._device_logged = True
         scores = []
         for i in range(0, len(pairs), batch_size):
             batch_pairs = pairs[i : i + batch_size]

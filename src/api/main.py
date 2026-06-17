@@ -19,7 +19,7 @@ load_dotenv()
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
-from typing import Optional
+from langchain_core.messages import HumanMessage, AIMessage
 from src.agent.graph import mingli_graph
 
 app = FastAPI(
@@ -37,9 +37,10 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., description="用户当前输入")
-    history: list[ChatMessage] = Field(default=[], description="历史对话（可选）")
-    use_rag: bool = Field(default=True, description="是否启用古籍检索")
+    message:    str = Field(..., description="用户当前输入")
+    history:    list[ChatMessage] = Field(default=[], description="历史对话（可选）")
+    use_rag:    bool = Field(default=True,  description="是否启用古籍检索")
+    use_critic: bool = Field(default=False, description="是否启用 Self-Critique 来源核验")
 
 
 class ChatResponse(BaseModel):
@@ -65,23 +66,31 @@ def chat(req: ChatRequest):
     - 传入 history 可保持多轮上下文
     - use_rag=false 时跳过古籍检索，由 LLM 直接回答
     """
-    history = [{"role": m.role, "content": m.content} for m in req.history]
+    # 构建 LangGraph 消息历史
+    lc_messages = []
+    for m in req.history:
+        if m.role == "user":
+            lc_messages.append(HumanMessage(content=m.content))
+        else:
+            lc_messages.append(AIMessage(content=m.content))
+    lc_messages.append(HumanMessage(content=req.message))
 
     initial_state = {
-        "user_query":   req.message,
-        "chat_history": history,
-        "use_rag":      req.use_rag,
-        "query_type":   "",
-        "needs_bazi":   False,
-        "birth_info":   {},
-        "search_query": "",
-        "bazi_str":     "",
-        "chunks":       [],
-        "draft_answer": "",
-        "final_answer": "",
+        "messages":   lc_messages,
+        "use_rag":    req.use_rag,
+        "use_critic": req.use_critic,
+        "chunks":     [],
+        "bazi_str":   "",
     }
 
     result = mingli_graph.invoke(initial_state)
+
+    # 提取最终回答（最后一条没有 tool_calls 的 AIMessage）
+    final_answer = ""
+    for msg in reversed(result.get("messages", [])):
+        if isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", None):
+            final_answer = msg.content
+            break
 
     # 整理古籍来源
     sources = []
@@ -95,8 +104,8 @@ def chat(req: ChatRequest):
             sources.append(loc)
 
     return ChatResponse(
-        answer=result.get("final_answer", ""),
+        answer=final_answer,
         sources=sources,
         bazi_str=result.get("bazi_str", ""),
-        query_type=result.get("query_type", ""),
+        query_type="",   # ReAct 架构不再显式标注意图类型
     )

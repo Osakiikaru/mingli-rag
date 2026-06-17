@@ -1,0 +1,31 @@
+# ── 大文件：通过 volume 挂载，不打入镜像 ──────────────
+data/
+models/
+
+# ── 开发/实验产物 ──────────────────────────────────────
+.env
+.env.*
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# ── IDE & OS ──────────────────────────────────────────
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# ── Git ───────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── 测试 & 日志 ────────────────────────────────────────
+*.log
+notebooks/

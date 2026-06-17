@@ -1,8 +1,8 @@
 # 命理古籍研究助手
 
-> 基于 RAG + LangGraph Agent 的子平八字命理知识问答系统
+> 基于 RAG + LangGraph ReAct Agent 的子平八字命理知识问答系统
 
-一个将7本古典命理典籍结构化入库、通过混合检索召回相关原文、由 LLM 生成有据可查回答的端到端 RAG 应用。核心价值在于**可追溯性**——每条回答都能定位到具体古籍章节，而非 LLM 的参数记忆。
+将 7 本古典命理典籍结构化入库，通过混合检索召回相关原文，由 LLM 生成有据可查的回答。核心价值在于**可追溯性**——每条回答都能定位到具体古籍章节，而非 LLM 的参数记忆。
 
 ---
 
@@ -13,36 +13,26 @@
    │
    ▼
 ┌──────────────────────────────────────────────┐
-│  LangGraph Agent（有状态图，7节点3路由）        │
+│  LangGraph ReAct Agent（2节点循环）            │
 │                                               │
-│  intent_parser ──── 三路路由 ────────────────│
-│       │                                       │
-│       ├── [chat]      → chat_node             │
-│       │                    ↓                  │
-│       ├── [bazi]      → bazi_node             │
-│       │                (lunar-python排盘)      │
-│       │                    ↓                  │
-│       └── [knowledge] → query_rewriter_node   │
-│                              ↓                │
-│                         retriever_node        │
-│                    ┌─────────────────┐        │
-│                    │  BGE-M3 向量     │        │
-│                    │  BM25 + jieba   │        │
-│                    │  RRF 融合        │        │
-│                    │  CrossEncoder   │        │
-│                    └─────────────────┘        │
-│                              ↓                │
-│                         generator_node        │
-│                              ↓                │
-│                         critic_node           │
-│                        (Self-Critique)        │
+│  ┌────────────┐  工具调用   ┌──────────────┐ │
+│  │ agent_node │ ─────────▶ │  tools_node  │ │
+│  │ (DeepSeek) │ ◀───────── │              │ │
+│  └────────────┘  工具结果   │  bazi_tool   │ │
+│        │                   │  search_tool │ │
+│        │ 无工具调用          └──────────────┘ │
+│        ▼                                      │
+│  [critic_node]  ← use_critic=True 时启用      │
+│  Self-Critique：核验引用来源，默认关闭          │
 └──────────────────────────────────────────────┘
    │
    ▼
-Streamlit 多轮对话界面（进度反馈 + 导出）
+Streamlit 多轮对话界面（流式进度 + 历史导出）
 ```
 
-> 架构图详见 `docs/architecture.png`
+**两个工具：**
+- `bazi_tool`：调用 lunar-python 确定性算法完成八字四柱大运排盘
+- `search_tool`：BGE-M3 向量 + BM25 + RRF 混合检索古籍原文
 
 ---
 
@@ -50,67 +40,67 @@ Streamlit 多轮对话界面（进度反馈 + 导出）
 
 | 类别 | 技术 | 说明 |
 |------|------|------|
-| **Agent 编排** | LangGraph | 有状态图，节点职责单一，条件路由 |
-| **排盘工具** | lunar-python | 确定性算法，100% 准确，解决 LLM 排盘错误问题 |
-| **稀疏检索** | BM25 + jieba | 自定义命理词典 + 查询同义词扩展（三秋↔秋月） |
-| **向量检索** | BGE-M3（本地） | BAAI 出品，中文最优开源向量模型，1024维 |
-| **融合算法** | RRF（k=60） | 无需归一化的多路检索融合，无额外超参数 |
-| **精排** | BGE-Reranker-v2-m3 | CrossEncoder 架构，20候选→top-5 |
+| **Agent 编排** | LangGraph | ReAct 2节点循环，条件路由到 tools / critic / END |
+| **排盘工具** | lunar-python | 确定性算法，解决 LLM 八字推算误差问题 |
+| **向量检索** | BGE-M3（本地） | BAAI 开源，中文最优，DirectEncoder 直接加载（float16 CUDA） |
+| **稀疏检索** | BM25Okapi + jieba | 命理自定义词典 + 查询同义词扩展（69条，秋月↔三秋、七杀↔偏官等） |
+| **融合算法** | RRF（k=60） | 无需归一化的多路检索融合 |
+| **精排** | BGE-Reranker-v2-m3 | CrossEncoder，消融实验验证有效（需 6GB+ VRAM）|
 | **向量库** | ChromaDB | 轻量本地部署，无需独立服务 |
-| **防幻觉** | Self-Critique 节点 | 生成后二次核验，Faithfulness +5.5%（实验验证） |
-| **LLM** | DeepSeek-v4-flash | Agent 生成节点，中文命理理解优秀 |
-| **评估** | 自研 LLM-as-Judge | 4指标自定义实现，不依赖 ragas 库 |
-| **界面** | Streamlit | 多轮对话，分步进度反馈，历史导出 |
-| **后端** | FastAPI | HTTP 接口，前后端分离，支持第三方集成 |
-| **追踪** | LangSmith | 全链路可观测，节点级延迟与 token 消耗 |
+| **防幻觉** | Self-Critique 节点 | 生成后核验引用，Faithfulness +2.1%（0.943→0.963，消融实验验证） |
+| **LLM** | DeepSeek-v4-flash | Agent 生成，中文命理理解优秀 |
+| **评估** | 自研 LLM-as-Judge | 4指标手动实现，Judge 与生成模型分离，避免自评估偏差 |
+| **界面** | Streamlit | 多轮对话，`st.status` 分步进度反馈 |
+| **部署** | Docker + docker-compose | 容器化，volume 挂载模型与数据 |
 
 ---
 
 ## 消融实验结果
 
-**评估集**：20道子平命理知识问答题，人工标注 ground truth  
-**评估方式**：自研 LLM-as-Judge（DeepSeek-v4-pro 作为判别模型）
+**评估集**：30 道子平命理知识问答题，人工标注 ground truth，覆盖格局、十神、日干取用、行运等核心话题  
+**评估方式**：自研 LLM-as-Judge（DeepSeek-v4-pro 作为判别模型，top_k=5）  
+**注**：Answer Relevancy 在本任务存在天花板效应（均值≥0.97），以下仅展示有区分度的三项指标
 
-### 检索配置对比（Context 指标）
+| 配置 | Context Precision | Context Recall | Faithfulness |
+|------|:-----------------:|:--------------:|:------------:|
+| BM25-only | 0.527 | 0.620 | 0.877 |
+| Vector-only | 0.733 | 0.777 | 0.898 |
+| **Hybrid（BM25+向量+RRF）** | **0.767** | **0.803** | 0.943 |
+| **Hybrid + Self-Critique** | 0.740 | 0.790 | **0.963** |
 
-| 配置 | Context Precision | Context Recall | 说明 |
-|------|:-----------------:|:--------------:|------|
-| BM25-only | 0.460 | 0.505 | 纯关键词检索，古籍术语歧义导致大面积失效 |
-| Vector-only | 0.690 | 0.695 | 语义向量，显著弥补 BM25 盲区 |
-| **Hybrid** | **0.710** | **0.710** | BM25 + 向量 + RRF 融合，两路互补 ✅ |
-| Hybrid+Rerank | 0.700 | 0.685 | CrossEncoder 精排，因领域偏移略降 |
-
-**关键发现**：BM25 在"壬水秋月"等查询上 CP=0.00（古籍用"三秋壬水"，字符无重叠）；向量检索通过语义理解有效弥补，相对提升 +50%。Reranker 在文言文领域出现偏移，是已知局限。
-
-### Self-Critique 效果验证（生成质量指标）
-
-| 配置 | Faithfulness | Answer Relevancy | 说明 |
-|------|:------------:|:----------------:|------|
-| Hybrid（无 Self-Critique） | 0.905 | 1.000 | 基线 |
-| **Hybrid（有 Self-Critique）** | **0.955** | 0.975 | +5.5% ✅ |
-
-**结论**：critic_node 将 Faithfulness 提升 +5.5%，验证 Self-Critique 在减少无古籍依据论断上的有效性。Answer Relevancy 微降（1.000→0.975）揭示了 Faithfulness 与完整性之间的固有张力。
+**关键发现：**
+1. **语义检索 vs BM25**：向量检索相比纯 BM25 精度提升 **+39%**（CP 0.527→0.733），因为古籍用"三秋壬水"而用户查"壬水秋月"，字符无重叠，BM25 完全失效
+2. **混合检索优于纯向量**：Hybrid CP=0.767 > Vector-only CP=0.733（+4.6%），RRF 融合有效利用 BM25 的词频信号，补足语义检索在精确术语匹配上的短板
+3. **Self-Critique 提升忠实度，精度略有取舍**：Hybrid+Critic Faithfulness 0.963，相比 Hybrid（0.943）提升 **+2.1%**，代价是 CP 从 0.767 降至 0.740——Critic 过滤掉部分无直接引文依据的表述，回答更保守但更可信
 
 ---
 
 ## 项目亮点
 
-### 1. Tool Calling 确定性排盘
-LLM 直接推算八字误差率极高（天干地支计算有严格规则）。系统通过 LangGraph Tool Node 调用 `lunar-python` 库，以确定性算法完成排盘，再将排盘结果注入检索上下文，实现"精准排盘 + 古籍知识"的结合。
+### 1. ReAct Agent 自主工具调用
+LangGraph 2节点循环：`agent_node` 由 LLM 决策（排盘/检索/直接回答），`tools_node` 执行工具并将结果写入 state。用户连续追问同一命盘时，排盘结果保留在消息历史中，LLM 自动判断无需重复排盘。
 
 ### 2. 两层存储结构（原文 + 注解）
 每个 chunk 同时存储：
 - `original`：古籍原文（文言文）→ 展示给用户，保证权威性
 - `annotation`：DeepSeek 生成的现代白话注解 → 用于 BGE-M3 向量编码，解决文言文语义理解偏差
 
-### 3. BM25 查询同义词扩展
-针对古籍与现代汉语的表达差异（"秋月" vs "三秋"，"七杀" vs "偏官"），在查询阶段做实时扩展，无需修改索引，BM25 覆盖率显著提升。
+### 3. 命理同义词查询扩展（69条）
+在查询阶段实时扩展，无需修改索引：
+```
+秋月 → 三秋 / 申月 / 酉月 / 戌月
+七杀 ↔ 偏官
+偏印 ↔ 枭神 ↔ 枭印
+正印 ↔ 印绶
+食伤 → 食神 + 伤官（集合展开）
+从格 → 从旺格 + 从强格 + 从弱格 + 从杀格 + 从财格
+```
 
 ### 4. Self-Critique 防幻觉（实验验证有效）
-生成回答后追加一次 LLM 核验调用，逐句比对回答与检索 chunk，删除无依据论断。消融实验验证 Faithfulness +5.5%，并量化了精确性与完整性的权衡关系。
+生成回答后追加一次 LLM 核验：逐条比对引用论断与检索 chunk，删除无依据内容或降级为"一般性表述"。消融实验验证 Faithfulness +2.1%（0.943→0.963），可通过 `use_critic=True` 启用。
 
-### 5. 自研评估体系（不依赖 ragas）
-完全理解并手动实现 Context Precision、Context Recall、Faithfulness、Answer Relevancy 四个指标，摆脱第三方库依赖，适配古籍中文场景，使用更强的 Pro 模型作为 judge（与生成模型分离，避免自评估偏差）。
+### 5. 自研评估体系
+手动实现 Context Precision、Context Recall、Faithfulness、Answer Relevancy 四个 RAGAS 指标，摆脱第三方库依赖，适配古籍中文场景，30题评测集覆盖主要命理知识点。
 
 ---
 
@@ -120,7 +110,7 @@ LLM 直接推算八字误差率极高（天干地支计算有严格规则）。�
 
 ```
 Python 3.10+
-NVIDIA GPU（可选，用于 Reranker 加速）
+NVIDIA GPU（可选，BGE-M3 用于加速；Reranker 需要 6GB+ VRAM）
 ```
 
 ### 安装
@@ -135,9 +125,19 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入以下内容：
-# NAGA_API_KEY=你的API密钥（从 naga.ac 获取）
-# LANGCHAIN_API_KEY=你的LangSmith密钥（可选，用于追踪）
+# 编辑 .env，填入：
+# NAGA_API_KEY=你的API密钥（从 naga.ac 获取，兼容 OpenAI 格式）
+# LANGCHAIN_API_KEY=你的LangSmith密钥（可选，用于链路追踪）
+```
+
+### 构建索引（首次运行）
+
+```bash
+# 构建向量索引（需要 BGE-M3 模型，首次自动下载）
+python src/retrieval/build_index.py
+
+# 构建 BM25 索引
+python -c "from src.retrieval.bm25_retriever import BM25Retriever; BM25Retriever.build()"
 ```
 
 ### 启动对话界面
@@ -146,22 +146,27 @@ cp .env.example .env
 streamlit run app.py
 ```
 
-### 启动 API 服务
+### Docker 部署
 
 ```bash
-uvicorn src.api.main:app --reload
-# POST http://localhost:8000/chat
+# 启动 API 服务
+docker-compose up api
+
+# 同时启动 Streamlit 界面
+docker-compose --profile ui up
 ```
 
 ### 运行消融实验
 
 ```bash
-# 检索指标（快速，约 20 分钟）
-python scripts/evaluate_ragas.py --no-gen
+# 全量评测（4配置 × 30题，含生成，约 40-60 分钟）
+python scripts/evaluate_ragas.py --no-resume
 
-# 生成质量指标（含 Self-Critique 对比）
-python scripts/evaluate_ragas.py --config hybrid_no_critic
-python scripts/evaluate_ragas.py --config hybrid_with_critic
+# 仅评测检索指标（跳过生成，约 15 分钟）
+python scripts/evaluate_ragas.py --no-resume --no-gen
+
+# 单配置调试（前2题）
+python scripts/evaluate_ragas.py --dry-run --config hybrid
 ```
 
 ---
@@ -171,36 +176,41 @@ python scripts/evaluate_ragas.py --config hybrid_with_critic
 ```
 命理测算RAG/
 ├── app.py                          # Streamlit 多轮对话界面
+├── Dockerfile                      # 容器化部署
+├── docker-compose.yml
+├── requirements.txt
+├── .env.example
 ├── src/
 │   ├── agent/
-│   │   ├── graph.py                # LangGraph 状态图定义
-│   │   ├── nodes.py                # 7个节点实现
+│   │   ├── graph.py                # LangGraph 状态图（ReAct 2节点 + critic）
+│   │   ├── nodes.py                # agent_node / tools_node / critic_node
 │   │   └── state.py                # AgentState 定义
 │   ├── retrieval/
 │   │   ├── hybrid_retriever.py     # BM25 + 向量 + RRF 混合检索
-│   │   ├── bm25_retriever.py       # BM25 检索器（含同义词扩展）
-│   │   ├── reranker.py             # CrossEncoder 精排
-│   │   └── direct_encoder.py       # BGE-M3 / Reranker 直接加载（无 sentence-transformers）
+│   │   ├── bm25_retriever.py       # BM25（jieba + 同义词扩展）
+│   │   ├── reranker.py             # CrossEncoder 精排（需 6GB+ VRAM）
+│   │   ├── direct_encoder.py       # BGE-M3 / Reranker 直接加载（无 sentence-transformers）
+│   │   └── build_index.py          # 向量索引构建脚本
 │   ├── tools/
-│   │   └── bazi.py                 # lunar-python 八字排盘工具
+│   │   └── bazi.py                 # lunar-python 八字四柱大运排盘
 │   └── api/
 │       └── main.py                 # FastAPI HTTP 接口
 ├── scripts/
-│   ├── evaluate_ragas.py           # 消融实验（自研 LLM-as-Judge）
+│   ├── evaluate_ragas.py           # 消融实验（自研 LLM-as-Judge，4配置）
 │   └── chunker.py                  # 古籍切分脚本
-├── data/
-│   ├── eval_questions.json         # 20 道评测题 + ground truth
-│   └── eval_results/               # 消融实验结果（JSON + Markdown）
-└── docs/
-    └── architecture.png            # 系统架构图
+└── data/
+    ├── eval_questions.json         # 30 道评测题 + ground truth
+    ├── dict/
+    │   └── mingli_dict.txt         # jieba 命理自定义词典
+    └── processed/                  # 切分后的 chunk JSON 文件
 ```
 
 ---
 
 ## 语料说明
 
-| 古籍 | 内容 | Chunk 数 |
-|------|------|---------|
+| 古籍 | 内容 | Chunk 数（约） |
+|------|------|:------:|
 | 子平真诠 | 格局论命核心典籍 | ~200 |
 | 滴天髓 | 命理通论，哲学性强 | ~150 |
 | 穷通宝鉴 | 日干逐月取用神（调候） | ~200 |
@@ -212,38 +222,34 @@ python scripts/evaluate_ragas.py --config hybrid_with_critic
 
 ---
 
-## 关于"古籍数量较少"
-
-RAG 的核心价值不在于语料量，而在于**可追溯性**——每条回答都能定位到具体古籍的章节，在知识严谨性要求高的专业场景里这是必须的。当前7本古籍完整演示了从检索到评估的全技术链路，语料可以持续扩充而不需要改动任何代码。
-
----
-
 ## 设计反思
 
-项目完成后做了一组对照实验：关闭 RAG，让 LLM 直接回答命理问题。结果出乎意料——纯 LLM 的回答流畅度更高，因为 DeepSeek 的训练数据已经覆盖了这7本公开古籍。
-
-这个发现让我重新理解了 RAG 的适用边界。
-
 ### 参数记忆 vs 检索记忆
+
+项目完成后做了一组对照实验：关闭 RAG，让 LLM 直接回答命理问题。结果发现纯 LLM 回答流畅度更高——DeepSeek 的训练数据已覆盖这 7 本公开古籍。
 
 | 类型 | 存储位置 | 适合什么 |
 |------|---------|---------|
 | 参数记忆 | 模型权重 | 通用规律、原理、定义 |
 | 检索记忆 | 向量库 | 具体事实、私有数据、需精确溯源的内容 |
 
-LLM 已经内化了命理的**原理层**（格局喜忌、调候用神、十神关系）。对这类知识建 RAG 库，是让模型检索它自己早已"背熟"的内容，增量有限。
+RAG 在本项目的核心价值不是"提供 LLM 不知道的知识"，而是**提供可核查的古籍原文依据**——每条回答锚定在真实文本片段上，用户可以验证原文，而非依赖无法追溯的模型记忆。
 
-**RAG 真正不可替代的场景**：私有数据（用户行为日志、企业知识库）、精确合规引用（法律/医疗）、训练截止后的新内容。对本项目而言，RAG 的价值在于**可追溯性**——每条回答锚定在真实文本片段上，用户可核查原文，而非依赖无法验证的模型记忆。
+### 忠实度与精度的取舍（Self-Critique 的代价）
 
-### Reranker 领域偏移
+实验结果显示，Hybrid+Critic 的 Faithfulness（0.963）高于 Hybrid（0.943），但 Context Precision 略有下降（0.767→0.740）。
 
-消融实验发现 Hybrid+Rerank 效果不如 Hybrid（CP 0.700 vs 0.710）。根因是 BGE-Reranker-v2-m3 在现代中文语料上训练，文言古籍属于 out-of-distribution，对"枭印夺食""羊刃制杀"等术语的语义敏感度不足。工业界修复方案：对 Reranker 做领域微调，或改用 LLM-as-Reranker。
+根因：Self-Critique 的机制是删除或降级"无直接古籍引文支撑"的论断。这类论断有时是 LLM 基于检索结果做出的合理推断，本身并非错误——但删除后回答更保守，召回的相关 chunk 在回答中被使用的比例也相对减少。
 
-### 架构局限
+权衡：对"可溯源性"要求极高的场景（学术引用、原文核验）启用 Self-Critique；对日常问答场景，Hybrid 已能在精度与流畅度之间取得更好平衡。
 
-当前三路路由（chat / knowledge / bazi）将意图分类前置，导致跨类型的连续对话出现上下文断裂——八字信息只在 bazi 路由时生成，后续追问走 knowledge 路由时丢失。
+### Reranker 的硬件门槛
 
-更合理的设计是**单节点 + 工具调用**：LLM 在同一上下文中自主决定是否调用排盘工具、是否检索古籍，而非在入口处硬分流。这是 v2 的重构方向。
+BGE-Reranker-v2-m3 精排在离线消融实验中验证有效（Context Precision +0.013），但同时加载 BGE-M3 和 Reranker 共需约 2.2GB 显存，叠加推理激活占用后超出 4GB 消费级 GPU 上限，生产环境默认关闭。工业部署建议使用独立 Reranker 服务或 8GB+ GPU。
+
+### HyDE 与同义词扩展的取舍
+
+HyDE（Hypothetical Document Embeddings）通过 LLM 生成"假设性回答"再编码，能缩小白话查询与文言文档的语义鸿沟。本项目用**查询同义词扩展**（69条命理术语映射）替代，在零额外延迟的前提下达到类似效果，适合术语体系封闭的垂直领域。
 
 ---
 

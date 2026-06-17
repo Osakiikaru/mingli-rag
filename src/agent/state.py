@@ -1,31 +1,19 @@
 """
-Agent 状态定义
--------------
-贯穿整个 LangGraph 流程的数据结构。
-每个节点读取需要的字段，写入自己负责的字段。
+Agent 状态定义（ReAct 版）
+--------------------------
+ReAct 架构下状态极度精简：
+- messages 是核心，通过 add_messages reducer 自动追加（不覆盖）
+- chunks / bazi_str 额外保存，供 Streamlit 界面展示来源和排盘详情
 """
 
-from typing import TypedDict
+from typing import Annotated
+from typing_extensions import TypedDict
+from langgraph.graph.message import add_messages
 
 
 class AgentState(TypedDict):
-    # ── 输入 ──────────────────────────────────────
-    user_query: str          # 用户原始问题
-    chat_history: list       # 最近几轮对话历史 [{role, content}, ...]
-    use_rag: bool            # 是否启用古籍检索（False = 纯LLM直接回答）
-
-    # ── 意图解析结果 ──────────────────────────────
-    query_type: str          # "knowledge"（知识问答）| "personal"（个人命理）
-    needs_bazi: bool         # 是否需要排盘（当前或历史中有生辰信息）
-    birth_info: dict         # 提取的生辰信息 {year, month, day, hour, gender}
-    search_query: str        # 精炼后用于检索的关键词
-
-    # ── 排盘结果 ──────────────────────────────────
-    bazi_str: str            # 格式化的四柱八字字符串
-
-    # ── 检索结果 ──────────────────────────────────
-    chunks: list             # hybrid+rerank 召回的 Top-5 chunks
-
-    # ── 生成结果 ──────────────────────────────────
-    draft_answer: str        # 生成节点的初稿
-    final_answer: str        # 经 Self-Critique 后的最终答案
+    messages:   Annotated[list, add_messages]  # 完整消息历史（HumanMessage/AIMessage/ToolMessage）
+    use_rag:    bool                            # 是否启用古籍检索（False=纯LLM直接回答）
+    use_critic: bool                            # 是否启用 Self-Critique（默认 False）
+    chunks:     list                            # 最近一次 search_tool 的原始片段（供 UI 展示来源）
+    bazi_str:   str                             # 最近一次 bazi_tool 的排盘结果（供 UI 展示）

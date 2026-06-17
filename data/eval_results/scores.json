@@ -1,8 +1,0 @@
-{
-  "hybrid_with_critic": {
-    "context_precision": 0.72,
-    "context_recall": 0.71,
-    "faithfulness": 0.955,
-    "answer_relevancy": 0.975
-  }
-}
