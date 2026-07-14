@@ -6,6 +6,12 @@
 
 ---
 
+## 个人工作范围
+
+本人独立完成古籍数据清洗与切分、LangGraph ReAct 链路、BM25 术语词典与查询扩展、混合检索与引用核验、评测集与消融实验、Streamlit / FastAPI / Docker 工程化；所用开源模型、框架与第三方库均在下文技术栈中注明。
+
+---
+
 ## 系统架构
 
 ```
@@ -136,7 +142,7 @@ NVIDIA GPU（可选，BGE-M3 用于加速；Reranker 需要 6GB+ VRAM）
 ### 安装
 
 ```bash
-git clone https://github.com/Osakiikaru/mingli-rag.git
+git clone https://github.com/qizhanggu/mingli-rag.git
 cd mingli-rag
 pip install -r requirements.txt
 ```
